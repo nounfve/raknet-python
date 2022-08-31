@@ -86,6 +86,28 @@ impl RaknetClient{
 
         Ok(buf.into())
     }
+    
+    pub fn recv_with_timeout(&mut self, millis :u64) -> PyResult<Vec<u8>>{
+        let buf = match match RT.block_on(
+            async {
+                tokio::time::timeout(std::time::Duration::from_millis(millis),
+                    self.client.recv()
+                ).await
+            }
+        ){
+            Ok(p) => p,
+            Err(_) => {
+                return Err(PyTimeoutError::new_err("recv timeout"));
+            }
+        }{
+            Ok(p) => p,
+            Err(_) => {
+                return Err(PyBaseException::new_err("recv error"));
+            }
+        };
+
+        Ok(buf.into())
+    }
 
     pub fn peeraddr(&mut self) -> PyResult<String> {
         Ok(self.client.peer_addr().unwrap().to_string())
@@ -134,13 +156,36 @@ impl RaknetServer {
             client : client
         })
     }
+    
+    pub fn accept_with_timeout(&mut self, millis :u64) -> PyResult<RaknetClient> {
+        let client = match match RT.block_on( 
+            async {
+                tokio::time::timeout(std::time::Duration::from_millis(millis),
+                    self.server.accept()
+                ).await
+            }
+        ){
+            Ok(p) => p,
+            Err(_) => {
+                return Err(PyTimeoutError::new_err("accept timeout"));
+            }
+        }{
+            Ok(p) => p,
+            Err(_) => {
+                return Err(PyBaseException::new_err("accept error"));
+            }
+        };
+        Ok(RaknetClient{
+            client : client
+        })
+    }
 
     pub fn localaddr(&mut self) -> PyResult<String> {
         Ok(self.server.local_addr().unwrap().to_string())
     }
 
     pub fn close(&mut self) -> PyResult<()> {
-        Ok(self.server.close().unwrap())
+        Ok(RT.block_on(self.server.close()).unwrap())
     }
 
     pub fn setmotd(&mut self , motd : String){
